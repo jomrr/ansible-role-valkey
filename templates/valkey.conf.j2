@@ -1,0 +1,56 @@
+# Managed by ansible.
+# file: {{ template_destpath }}
+
+bind {{ valkey_bind_addresses | join(' ') }}
+protected-mode yes
+port {{ valkey_tcp_port if valkey_tcp_enabled and not valkey_tls_enabled else 0 }}
+{% if valkey_tls_enabled %}
+tls-port {{ valkey_tcp_port }}
+tls-cert-file {{ valkey_tls_cert_file | to_json(ensure_ascii=False) }}
+tls-key-file {{ valkey_tls_key_file | to_json(ensure_ascii=False) }}
+tls-ca-cert-file {{ valkey_tls_ca_file | to_json(ensure_ascii=False) }}
+tls-auth-clients {{ 'yes' if valkey_tls_auth_clients else 'no' }}
+{% endif %}
+{% if valkey_socket_enabled %}
+unixsocket {{ valkey_socket_path | to_json(ensure_ascii=False) }}
+unixsocketperm {{ valkey_socket_mode }}
+{% endif %}
+
+daemonize no
+supervised systemd
+pidfile ""
+logfile ""
+dir /var/lib/valkey
+dbfilename dump.rdb
+appenddirname appendonlydir
+appendfilename appendonly.aof
+maxmemory {{ valkey_maxmemory }}
+maxmemory-policy {{ valkey_maxmemory_policy }}
+save ""
+{% if valkey_rdb_enabled %}
+{% for __valkey_save in valkey_rdb_save %}
+save {{ __valkey_save.seconds }} {{ __valkey_save.changes }}
+{% endfor %}
+{% endif %}
+appendonly {{ 'yes' if valkey_aof_enabled else 'no' }}
+appendfsync {{ valkey_aof_fsync }}
+
+{% if valkey_password | length > 0 %}
+user default reset on #{{ valkey_password | hash('sha256') }} ~* &* +@all
+{% elif valkey_acl_users | length > 0 %}
+user default reset off
+{% else %}
+user default reset on nopass ~* &* +@all
+{% endif %}
+{% for __valkey_acl in valkey_acl_users %}
+user {{ __valkey_acl.name }} reset on #{{ __valkey_acl.password | hash('sha256') }}{% for __valkey_token in (
+    __valkey_acl.commands | default(valkey_acl_commands)
+    + __valkey_acl.key_patterns | default(valkey_acl_key_patterns)
+    + __valkey_acl.channels | default(valkey_acl_channels)
+) %} {{ __valkey_token | to_json(ensure_ascii=False) }}{% endfor %}
+
+{% endfor %}
+{% for __valkey_directive in valkey_extra_directives %}
+{{ __valkey_directive.name }}{% for __valkey_argument in __valkey_directive.arguments %} {{ __valkey_argument | to_json(ensure_ascii=False) }}{% endfor %}
+
+{% endfor %}

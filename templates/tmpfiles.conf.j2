@@ -1,0 +1,7 @@
+# Managed by ansible.
+# file: {{ template_destpath }}
+d /run/valkey 0750 valkey {{ __valkey_socket_group }} -
+d /var/lib/valkey 0700 valkey valkey -
+{% if valkey_socket_enabled and valkey_socket_path | dirname != '/run/valkey' %}
+d {{ valkey_socket_path | dirname }} 0750 valkey {{ __valkey_socket_group }} -
+{% endif %}

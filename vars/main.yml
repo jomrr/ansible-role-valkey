@@ -1,0 +1,31 @@
+---
+# role: valkey
+# file: vars/main.yml
+
+__valkey_socket_group: valkey-clients
+__valkey_managed_directives:
+  - bind
+  - port
+  - protected-mode
+  - unixsocket
+  - unixsocketperm
+  - unixsocketgroup
+  - requirepass
+  - user
+  - aclfile
+  - include
+  - loadmodule
+  - rename-command
+  - daemonize
+  - supervised
+  - pidfile
+  - logfile
+  - dir
+  - dbfilename
+  - appenddirname
+  - appendfilename
+  - appendonly
+  - appendfsync
+  - save
+  - maxmemory
+  - maxmemory-policy

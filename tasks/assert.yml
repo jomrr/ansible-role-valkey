@@ -1,0 +1,114 @@
+---
+# role: valkey
+# file: tasks/assert.yml
+
+- name: VALKEY | Validate listener and cache settings
+  ansible.builtin.assert:
+    that:
+      - valkey_tcp_enabled or valkey_socket_enabled
+      - valkey_tcp_port > 0 and valkey_tcp_port < 65536
+      - valkey_bind_addresses | length > 0
+      - valkey_socket_path is match('^/(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*/)+[A-Za-z0-9_-][A-Za-z0-9_.-]*$')
+      - valkey_socket_path | dirname not in ['/', '/run', '/var', '/var/run', '/tmp', '/etc', '/var/lib', '/var/lib/valkey']
+      - valkey_socket_path | dirname != '/etc/valkey'
+      - valkey_socket_path | length < 108
+      - valkey_socket_mode is match('^0?7[0-7]0$')
+      - valkey_maxmemory is match('^(0|[1-9][0-9]*(?:[kKmMgG](?:[bB])?)?)$')
+      - valkey_socket_enabled or valkey_socket_users | length == 0
+      - valkey_socket_enabled or valkey_selinux_socket_clients | length == 0
+      - not valkey_tls_enabled or valkey_tcp_enabled
+    quiet: true
+
+- name: VALKEY | Validate listen address tokens
+  ansible.builtin.assert:
+    that:
+      - __valkey_address is match('^-?[0-9a-fA-F:.]+$')
+    quiet: true
+  loop: "{{ valkey_bind_addresses }}"
+  loop_control:
+    loop_var: __valkey_address
+    label: "{{ __valkey_address }}"
+
+- name: VALKEY | Require authentication for non-loopback TCP listeners
+  ansible.builtin.assert:
+    that:
+      - >-
+        not valkey_tcp_enabled or
+        valkey_bind_addresses | reject('match', '^-?(127\.[0-9]+\.[0-9]+\.[0-9]+|::1)$') | list | length == 0 or
+        valkey_password | length > 0 or valkey_acl_users | length > 0
+    quiet: true
+    fail_msg: Non-loopback TCP listeners require a password or named ACL users.
+  no_log: true
+
+- name: VALKEY | Validate TLS file paths
+  ansible.builtin.assert:
+    that:
+      - valkey_tls_cert_file is match('^/[^\r\n]+$')
+      - valkey_tls_key_file is match('^/[^\r\n]+$')
+      - valkey_tls_ca_file is match('^/[^\r\n]+$')
+    quiet: true
+  when: valkey_tls_enabled
+
+- name: VALKEY | Validate unique ACL identities
+  ansible.builtin.assert:
+    that:
+      - valkey_acl_users | map(attribute='name') | unique | length == valkey_acl_users | length
+    quiet: true
+
+- name: VALKEY | Validate ACL user names
+  ansible.builtin.assert:
+    that:
+      - __valkey_username is match('^[A-Za-z0-9_-][A-Za-z0-9_.-]*$')
+      - __valkey_username != 'default'
+    quiet: true
+  loop: "{{ valkey_acl_users | map(attribute='name') }}"
+  loop_control:
+    loop_var: __valkey_username
+    label: "{{ __valkey_username }}"
+
+- name: VALKEY | Validate ACL credentials and permission tokens
+  ansible.builtin.assert:
+    that:
+      - __valkey_acl.password | length > 0
+      - __valkey_acl.commands | default(valkey_acl_commands) | reject('match', '^[+-][@A-Za-z0-9_|*-]+$') | list | length == 0
+      - __valkey_acl.key_patterns | default(valkey_acl_key_patterns) | reject('match', '^~[^\s]+$') | list | length == 0
+      - __valkey_acl.channels | default(valkey_acl_channels) | reject('match', '^&[^\s]+$') | list | length == 0
+    quiet: true
+  loop: "{{ valkey_acl_users }}"
+  loop_control:
+    loop_var: __valkey_acl
+    label: "{{ __valkey_acl.name }}"
+  no_log: true
+
+- name: VALKEY | Validate snapshot intervals
+  ansible.builtin.assert:
+    that:
+      - __valkey_save.seconds > 0
+      - __valkey_save.changes > 0
+    quiet: true
+  loop: "{{ valkey_rdb_save }}"
+  loop_control:
+    loop_var: __valkey_save
+    label: "{{ __valkey_save.seconds }}"
+
+- name: VALKEY | Validate additional directive boundaries
+  ansible.builtin.assert:
+    that:
+      - __valkey_directive_name is match('^[a-z][a-z0-9-]*$')
+      - __valkey_directive_name not in __valkey_managed_directives
+      - not __valkey_directive_name.startswith('tls-')
+    quiet: true
+  loop: "{{ valkey_extra_directives | map(attribute='name') }}"
+  loop_control:
+    loop_var: __valkey_directive_name
+    label: "{{ __valkey_directive_name }}"
+
+- name: VALKEY | Validate SELinux client domain names
+  ansible.builtin.assert:
+    that:
+      - __valkey_domain is match('^[a-z][a-z0-9_]*_t$')
+    quiet: true
+  loop: "{{ valkey_selinux_socket_clients }}"
+  loop_control:
+    loop_var: __valkey_domain
+    label: "{{ __valkey_domain }}"

@@ -1,0 +1,16 @@
+---
+# role: valkey
+# file: meta/main.yml
+
+galaxy_info:
+  author: Jonas Mauer
+  description: Install and configure Valkey as a secure local or network cache.
+  galaxy_tags:
+    - valkey
+    - cache
+    - database
+  issue_tracker_url: https://github.com/jomrr/ansible-role-valkey/issues
+  license: MIT
+  min_ansible_version: "2.22"
+  namespace: jomrr
+  role_name: valkey

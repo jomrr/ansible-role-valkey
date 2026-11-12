@@ -1,0 +1,18 @@
+---
+# role: valkey
+# file: handlers/main.yml
+
+- name: VALKEY | Reload systemd units
+  become: true
+  become_user: root
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  listen: reload systemd
+
+- name: VALKEY | Restart the server
+  become: true
+  become_user: root
+  ansible.builtin.systemd_service:
+    name: "{{ __valkey_service }}"
+    state: restarted
+  listen: restart valkey

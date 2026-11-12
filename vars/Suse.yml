@@ -1,0 +1,6 @@
+---
+# role: valkey
+# file: vars/Suse.yml
+
+__valkey_packages: [valkey]
+__valkey_service: valkey@valkey.service

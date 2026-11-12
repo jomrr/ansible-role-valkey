@@ -1,0 +1,42 @@
+---
+# role: valkey
+# file: molecule/resources/playbooks/verify.yml
+
+- name: VALKEY | Verify default cache behavior
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: VALKEY | Check loopback TCP access
+      ansible.builtin.command:
+        argv: [valkey-cli, --raw, ping]
+      changed_when: false
+      register: __valkey_ping
+      failed_when: __valkey_ping.rc != 0 or __valkey_ping.stdout != 'PONG'
+
+    - name: VALKEY | Read active cache settings
+      ansible.builtin.command:
+        argv: [valkey-cli, '-3', --json, config, get, bind, protected-mode, maxmemory, maxmemory-policy, save, appendonly]
+      changed_when: false
+      register: __valkey_settings
+
+    - name: VALKEY | Verify secure cache defaults
+      ansible.builtin.assert:
+        that:
+          - (__valkey_settings.stdout | from_json).bind == '127.0.0.1 -::1'
+          - (__valkey_settings.stdout | from_json).maxmemory == '268435456'
+          - (__valkey_settings.stdout | from_json)['maxmemory-policy'] == 'allkeys-lru'
+          - (__valkey_settings.stdout | from_json)['protected-mode'] == 'yes'
+          - (__valkey_settings.stdout | from_json).appendonly == 'no'
+          - (__valkey_settings.stdout | from_json).save == ''
+        quiet: true
+
+    - name: VALKEY | Verify the service is enabled and running
+      become: true
+      become_user: root
+      ansible.builtin.systemd_service:
+        name: "{{ {'Debian': 'valkey-server.service', 'RedHat': 'valkey.service', 'Suse': 'valkey@valkey.service'}[ansible_facts.os_family] }}"
+        enabled: true
+        state: started
+      check_mode: true
+      register: __valkey_service_state
+      failed_when: __valkey_service_state is changed or __valkey_service_state is failed

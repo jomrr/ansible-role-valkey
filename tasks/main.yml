@@ -1,0 +1,142 @@
+---
+# role: valkey
+# file: tasks/main.yml
+
+- name: VALKEY | Load platform settings
+  ansible.builtin.include_vars: "{{ lookup('ansible.builtin.first_found', __valkey_platform_files) }}"
+  vars:
+    __valkey_platform_files:
+      files:
+        - "{{ ansible_facts.os_family }}.yml"
+      paths:
+        - "{{ role_path }}/vars"
+
+- name: VALKEY | Validate role inputs
+  ansible.builtin.import_tasks: assert.yml
+
+- name: VALKEY | Install the server
+  become: true
+  become_user: root
+  ansible.builtin.package:
+    name: "{{ __valkey_packages }}"
+    state: present
+
+- name: VALKEY | Create the socket access group
+  become: true
+  become_user: root
+  ansible.builtin.group:
+    name: "{{ __valkey_socket_group }}"
+    system: true
+
+- name: VALKEY | Require local socket users to exist
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ __valkey_socket_user }}"
+  loop: "{{ valkey_socket_users }}"
+  loop_control:
+    loop_var: __valkey_socket_user
+    label: "{{ __valkey_socket_user }}"
+
+- name: VALKEY | Grant local users socket access
+  become: true
+  become_user: root
+  ansible.builtin.user:
+    name: "{{ __valkey_socket_user }}"
+    groups: "{{ __valkey_socket_group }}"
+    append: true
+  loop: "{{ valkey_socket_users }}"
+  loop_control:
+    loop_var: __valkey_socket_user
+    label: "{{ __valkey_socket_user }}"
+
+- name: VALKEY | Protect the configuration directory
+  become: true
+  become_user: root
+  ansible.builtin.file:
+    path: /etc/valkey
+    state: directory
+    owner: root
+    group: valkey
+    mode: '0750'
+
+- name: VALKEY | Protect the data directory
+  become: true
+  become_user: root
+  ansible.builtin.file:
+    path: /var/lib/valkey
+    state: directory
+    owner: valkey
+    group: valkey
+    mode: '0700'
+
+- name: VALKEY | Create the socket directory
+  become: true
+  become_user: root
+  ansible.builtin.file:
+    path: "{{ valkey_socket_path | dirname }}"
+    state: directory
+    owner: valkey
+    group: "{{ __valkey_socket_group }}"
+    mode: '0750'
+  when: valkey_socket_enabled
+
+- name: VALKEY | Configure socket directory creation at boot
+  become: true
+  become_user: root
+  ansible.builtin.template:
+    src: tmpfiles.conf.j2
+    dest: /etc/tmpfiles.d/valkey.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: VALKEY | Configure SELinux access
+  ansible.builtin.import_tasks: selinux.yml
+  when: ansible_facts.selinux.status == 'enabled'
+
+- name: VALKEY | Create the systemd override directory
+  become: true
+  become_user: root
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ __valkey_service }}.d"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: VALKEY | Configure the service sandbox and socket group
+  become: true
+  become_user: root
+  ansible.builtin.template:
+    src: service.conf.j2
+    dest: "/etc/systemd/system/{{ __valkey_service }}.d/override.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - reload systemd
+    - restart valkey
+
+- name: VALKEY | Configure the server and authentication
+  become: true
+  become_user: root
+  ansible.builtin.template:
+    src: valkey.conf.j2
+    dest: /etc/valkey/valkey.conf
+    owner: root
+    group: valkey
+    mode: '0640'
+    backup: true
+  no_log: true
+  notify: restart valkey
+
+- name: VALKEY | Apply configuration before starting the service
+  ansible.builtin.meta: flush_handlers
+
+- name: VALKEY | Enable and start the server
+  become: true
+  become_user: root
+  ansible.builtin.systemd_service:
+    name: "{{ __valkey_service }}"
+    enabled: true
+    state: started

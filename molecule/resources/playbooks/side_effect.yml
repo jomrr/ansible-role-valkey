@@ -1,0 +1,293 @@
+---
+# role: valkey
+# file: molecule/resources/playbooks/side_effect.yml
+
+- name: VALKEY | Exercise transport, authentication and persistence changes
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: VALKEY | Reject unauthenticated non-loopback TCP
+      block:
+        - name: VALKEY | Attempt an unauthenticated public listener
+          ansible.builtin.include_role:
+            name: "{{ lookup('ansible.builtin.env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+          vars:
+            valkey_bind_addresses: ['0.0.0.0']
+
+        - name: VALKEY | Fail if unsafe listener configuration was accepted
+          ansible.builtin.fail:
+            msg: The role accepted an unauthenticated public listener.
+      rescue:
+        - name: VALKEY | Verify the authentication guard rejected the listener
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_task.name == 'VALKEY | Require authentication for non-loopback TCP listeners'
+            quiet: true
+
+    - name: VALKEY | Reject managed directive overrides
+      block:
+        - name: VALKEY | Attempt to override the protected mode directive
+          ansible.builtin.include_role:
+            name: "{{ lookup('ansible.builtin.env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+          vars:
+            valkey_extra_directives:
+              - name: protected-mode
+                arguments: ['no']
+
+        - name: VALKEY | Fail if a managed directive override was accepted
+          ansible.builtin.fail:
+            msg: The role accepted a protected mode override.
+      rescue:
+        - name: VALKEY | Verify the directive guard rejected the override
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_task.name == 'VALKEY | Validate additional directive boundaries'
+            quiet: true
+
+    - name: VALKEY | Enable both transports with password and restricted ACL access
+      ansible.builtin.include_role:
+        name: "{{ lookup('ansible.builtin.env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+      vars:
+        valkey_bind_addresses: ['0.0.0.0']
+        valkey_tcp_port: 6380
+        valkey_socket_enabled: true
+        valkey_socket_path: /run/valkey-test/cache.sock
+        valkey_socket_mode: '0770'
+        valkey_socket_users: [valkey-client]
+        valkey_password: molecule-admin-password
+        valkey_acl_users:
+          - name: application
+            password: molecule-application-password
+            key_patterns: ['~application:*']
+        valkey_maxmemory: 64mb
+        valkey_maxmemory_policy: volatile-lru
+        valkey_extra_directives:
+          - name: timeout
+            arguments: ['300']
+
+    - name: VALKEY | Verify unauthenticated TCP is rejected
+      ansible.builtin.command:
+        argv: [valkey-cli, --raw, -p, '6380', ping]
+      changed_when: false
+      register: __valkey_unauthenticated
+      failed_when: "'NOAUTH' not in __valkey_unauthenticated.stdout"
+
+    - name: VALKEY | Verify local service user socket access
+      become: true
+      become_user: valkey-client
+      ansible.builtin.command:
+        argv: [valkey-cli, --raw, -s, /run/valkey-test/cache.sock, ping]
+      environment:
+        REDISCLI_AUTH: molecule-admin-password
+      changed_when: false
+      register: __valkey_socket_ping
+      failed_when: __valkey_socket_ping.rc != 0 or __valkey_socket_ping.stdout != 'PONG'
+      no_log: true
+
+    - name: VALKEY | Verify socket users cannot read server configuration
+      become: true
+      become_user: valkey-client
+      ansible.builtin.command:
+        argv: [test, -r, /etc/valkey/valkey.conf]
+      changed_when: false
+      register: __valkey_config_read
+      failed_when: __valkey_config_read.rc != 1
+
+    - name: VALKEY | Write an allowed application key
+      ansible.builtin.command:
+        argv: [valkey-cli, --raw, -p, '6380', --user, application, set, application:test, cached]
+      environment:
+        REDISCLI_AUTH: molecule-application-password
+      changed_when: false
+      register: __valkey_acl_write
+      failed_when: __valkey_acl_write.rc != 0 or __valkey_acl_write.stdout != 'OK'
+      no_log: true
+
+    - name: VALKEY | Verify ACL command and key restrictions
+      ansible.builtin.command:
+        argv: "{{ ['valkey-cli', '--raw', '-p', '6380', '--user', 'application'] + __valkey_denied_command }}"
+      environment:
+        REDISCLI_AUTH: molecule-application-password
+      loop:
+        - [get, another:secret]
+        - [config, get, bind]
+      loop_control:
+        loop_var: __valkey_denied_command
+      changed_when: false
+      register: __valkey_denied
+      failed_when: "'NOPERM' not in __valkey_denied.stdout"
+      no_log: true
+
+    - name: VALKEY | Read updated cache and native directive settings
+      ansible.builtin.command:
+        argv: [valkey-cli, --raw, -p, '6380', config, get, maxmemory, maxmemory-policy, timeout]
+      environment:
+        REDISCLI_AUTH: molecule-admin-password
+      changed_when: false
+      register: __valkey_updated_settings
+      failed_when: >-
+        '67108864' not in __valkey_updated_settings.stdout_lines or
+        'volatile-lru' not in __valkey_updated_settings.stdout_lines or
+        '300' not in __valkey_updated_settings.stdout_lines
+      no_log: true
+
+    - name: VALKEY | Switch to a socket-only cache with ACL-only authentication
+      ansible.builtin.include_role:
+        name: "{{ lookup('ansible.builtin.env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+      vars:
+        valkey_tcp_enabled: false
+        valkey_socket_enabled: true
+        valkey_acl_users:
+          - name: application
+            password: molecule-rotated-password
+
+    - name: VALKEY | Verify TCP was disabled
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 6380
+        state: stopped
+        timeout: 5
+
+    - name: VALKEY | Verify default user was disabled
+      ansible.builtin.command:
+        argv: [valkey-cli, --raw, -s, /run/valkey/valkey.sock, ping]
+      changed_when: false
+      register: __valkey_default_off
+      failed_when: "'NOAUTH' not in __valkey_default_off.stdout"
+
+    - name: VALKEY | Verify rotated ACL password over the socket
+      ansible.builtin.command:
+        argv: [valkey-cli, --raw, -s, /run/valkey/valkey.sock, --user, application, ping]
+      environment:
+        REDISCLI_AUTH: molecule-rotated-password
+      changed_when: false
+      register: __valkey_rotated
+      failed_when: __valkey_rotated.rc != 0 or __valkey_rotated.stdout != 'PONG'
+      no_log: true
+
+    - name: VALKEY | Verify the previous ACL password no longer authenticates
+      ansible.builtin.command:
+        argv: [valkey-cli, --raw, -s, /run/valkey/valkey.sock, --user, application, ping]
+      environment:
+        REDISCLI_AUTH: molecule-application-password
+      changed_when: false
+      register: __valkey_revoked
+      failed_when: "'PONG' in __valkey_revoked.stdout or 'WRONGPASS' not in __valkey_revoked.stderr"
+      no_log: true
+
+    - name: VALKEY | Permit the service to read the private TLS fixture
+      become: true
+      become_user: root
+      ansible.builtin.file:
+        path: /etc/valkey-molecule.key
+        owner: valkey
+        group: valkey
+        mode: '0600'
+
+    - name: VALKEY | Switch to TLS-only TCP with RDB and AOF persistence
+      ansible.builtin.include_role:
+        name: "{{ lookup('ansible.builtin.env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+      vars:
+        valkey_tcp_port: 6381
+        valkey_password: molecule-tls-password
+        valkey_tls_enabled: true
+        valkey_tls_cert_file: /etc/valkey-molecule.crt
+        valkey_tls_key_file: /etc/valkey-molecule.key
+        valkey_tls_ca_file: /etc/valkey-molecule.crt
+        valkey_rdb_enabled: true
+        valkey_aof_enabled: true
+
+    - name: VALKEY | Write a persistent value over mutual TLS
+      become: true
+      become_user: root
+      ansible.builtin.command:
+        argv:
+          - valkey-cli
+          - --raw
+          - --tls
+          - --cacert
+          - /etc/valkey-molecule.crt
+          - --cert
+          - /etc/valkey-molecule.crt
+          - --key
+          - /etc/valkey-molecule.key
+          - -p
+          - '6381'
+          - set
+          - persistent:key
+          - survives-restart
+      environment:
+        REDISCLI_AUTH: molecule-tls-password
+      changed_when: false
+      register: __valkey_tls_write
+      failed_when: __valkey_tls_write.rc != 0 or __valkey_tls_write.stdout != 'OK'
+      no_log: true
+
+    - name: VALKEY | Verify the previous Unix socket was removed
+      ansible.builtin.stat:
+        path: /run/valkey/valkey.sock
+      register: __valkey_old_socket
+      failed_when: __valkey_old_socket.stat.exists
+
+    - name: VALKEY | Restart the persistent server
+      become: true
+      become_user: root
+      ansible.builtin.systemd_service:
+        name: "{{ {'Debian': 'valkey-server.service', 'RedHat': 'valkey.service', 'Suse': 'valkey@valkey.service'}[ansible_facts.os_family] }}"
+        state: restarted
+
+    - name: VALKEY | Verify persistence over TLS
+      become: true
+      become_user: root
+      ansible.builtin.command:
+        argv:
+          - valkey-cli
+          - --raw
+          - --tls
+          - --cacert
+          - /etc/valkey-molecule.crt
+          - --cert
+          - /etc/valkey-molecule.crt
+          - --key
+          - /etc/valkey-molecule.key
+          - -p
+          - '6381'
+          - get
+          - persistent:key
+      environment:
+        REDISCLI_AUTH: molecule-tls-password
+      changed_when: false
+      register: __valkey_persisted
+      failed_when: __valkey_persisted.rc != 0 or __valkey_persisted.stdout != 'survives-restart'
+      no_log: true
+
+    - name: VALKEY | Verify RDB and AOF persistence files were written
+      become: true
+      become_user: root
+      ansible.builtin.stat:
+        path: "{{ __valkey_persistence_path }}"
+        get_checksum: false
+        get_mime: false
+      loop:
+        - /var/lib/valkey/dump.rdb
+        - /var/lib/valkey/appendonlydir/appendonly.aof.manifest
+      loop_control:
+        loop_var: __valkey_persistence_path
+        label: "{{ __valkey_persistence_path }}"
+      register: __valkey_persistence_file
+      failed_when: >-
+        not __valkey_persistence_file.stat.exists or
+        not __valkey_persistence_file.stat.isreg or
+        __valkey_persistence_file.stat.size == 0
+
+    - name: VALKEY | Restore the default configuration
+      ansible.builtin.include_role:
+        name: "{{ lookup('ansible.builtin.env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+
+    - name: VALKEY | Stop and disable the server before convergence
+      become: true
+      become_user: root
+      ansible.builtin.systemd_service:
+        name: "{{ {'Debian': 'valkey-server.service', 'RedHat': 'valkey.service', 'Suse': 'valkey@valkey.service'}[ansible_facts.os_family] }}"
+        state: stopped
+        enabled: false

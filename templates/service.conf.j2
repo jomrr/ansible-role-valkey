@@ -1,0 +1,20 @@
+# Managed by ansible.
+# file: {{ template_destpath }}
+
+[Service]
+ExecStart=
+ExecStart=/usr/bin/valkey-server /etc/valkey/valkey.conf
+Group={{ __valkey_socket_group }}
+SupplementaryGroups=valkey
+RuntimeDirectory=valkey
+RuntimeDirectoryMode=0750
+PIDFile=
+UMask=0077
+LimitCORE=0
+ProtectSystem=strict
+ReadWritePaths=
+ReadWritePaths=/var/lib/valkey /run/valkey
+{% if valkey_socket_enabled %}
+ReadWritePaths={{ valkey_socket_path | dirname }}
+{% endif %}
+NoNewPrivileges=true

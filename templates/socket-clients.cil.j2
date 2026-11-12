@@ -1,0 +1,10 @@
+; Managed by ansible.
+; file: {{ template_destpath }}
+
+(typeattribute valkey_socket_client)
+{% if valkey_selinux_socket_clients | length > 0 %}
+(typeattributeset valkey_socket_client ({{ valkey_selinux_socket_clients | unique | join(' ') }}))
+{% endif %}
+(allow valkey_socket_client redis_var_run_t (dir (getattr search)))
+(allow valkey_socket_client redis_var_run_t (sock_file (getattr open read write)))
+(allow valkey_socket_client redis_t (unix_stream_socket (connectto)))

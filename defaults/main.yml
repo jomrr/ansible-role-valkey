@@ -1,0 +1,99 @@
+---
+# role: valkey
+# file: defaults/main.yml
+
+# Enable the TCP listener independently of the Unix socket.
+valkey_tcp_enabled: true
+
+# Bind TCP to the listed numeric addresses; a leading minus makes an address optional.
+valkey_bind_addresses: ['127.0.0.1', '-::1']
+
+# Select the TCP port for plaintext or TLS connections.
+valkey_tcp_port: 6379
+
+# Enable the Unix socket independently of TCP.
+valkey_socket_enabled: false
+
+# Place the socket in a dedicated directory owned by the service.
+valkey_socket_path: /run/valkey/valkey.sock
+
+# Set quoted socket permissions, with no access for other users.
+valkey_socket_mode: '0770'
+
+# Add local service users to the valkey-clients socket group.
+valkey_socket_users: []
+# valkey_socket_users:
+#   - www-data
+
+# Encrypt the TCP listener using certificate files on the managed host.
+valkey_tls_enabled: false
+
+# Read the PEM server certificate from this absolute path.
+valkey_tls_cert_file: ''
+
+# Read the PEM private key from this absolute path.
+valkey_tls_key_file: ''
+
+# Read trusted certificate authorities from this absolute PEM file path.
+valkey_tls_ca_file: ''
+
+# Require a valid client certificate in addition to Valkey authentication.
+valkey_tls_auth_clients: true
+
+# Authenticate the default user; an empty password disables it when ACL users exist.
+valkey_password: ''
+
+# Define named ACL users with required name and password plus optional permission lists.
+valkey_acl_users: []
+# valkey_acl_users:
+#   - name: application
+#     password: "{{ vault_valkey_application_password }}"
+#     commands: ['+@read', '+@write', '+ping']
+#     key_patterns: ['~application:*']
+#     channels: []
+
+# Set command permissions inherited by ACL users without a commands override.
+valkey_acl_commands: ['+@read', '+@write', '+ping']
+
+# Set key patterns inherited by ACL users without a key_patterns override.
+valkey_acl_key_patterns: ['~*']
+
+# Set Pub/Sub channel patterns inherited by ACL users without a channels override.
+valkey_acl_channels: []
+
+# Set the maximum cache memory; zero removes the limit.
+valkey_maxmemory: 256mb
+
+# Choose how keys are evicted when the memory limit is reached.
+# Choices: noeviction, allkeys-lru, volatile-lru, allkeys-lfu, volatile-lfu, allkeys-random, volatile-random, volatile-ttl
+valkey_maxmemory_policy: allkeys-lru
+
+# Enable RDB snapshots at the configured intervals.
+valkey_rdb_enabled: false
+
+# Specify RDB save intervals as seconds and minimum changed keys.
+valkey_rdb_save:
+  - seconds: 900
+    changes: 1
+  - seconds: 300
+    changes: 10
+  - seconds: 60
+    changes: 10000
+
+# Enable append-only persistence.
+valkey_aof_enabled: false
+
+# Select the append-only file synchronization policy.
+# Choices: always, everysec, no
+valkey_aof_fsync: everysec
+
+# Pass additional native directives as a name and a list of argument strings.
+valkey_extra_directives: []
+# valkey_extra_directives:
+#   - name: timeout
+#     arguments: ['300']
+
+# Permit the listed SELinux domains to connect to the Unix socket.
+valkey_selinux_socket_clients: []
+# valkey_selinux_socket_clients:
+#   - httpd_t

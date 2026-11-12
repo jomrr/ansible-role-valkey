@@ -1,0 +1,6 @@
+---
+# role: valkey
+# file: vars/RedHat.yml
+
+__valkey_packages: [valkey]
+__valkey_service: valkey.service

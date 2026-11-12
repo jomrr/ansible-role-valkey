@@ -1,0 +1,85 @@
+---
+# role: valkey
+# file: molecule/resources/playbooks/prepare.yml
+
+- name: "Molecule | prepare | valkey"
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: "VALKEY | Refresh APT package metadata"
+      become: true
+      become_user: root
+      ansible.builtin.apt:
+        update_cache: true
+      when: ansible_facts.pkg_mgr == 'apt'
+
+    - name: "VALKEY | Refresh DNF package metadata"
+      become: true
+      become_user: root
+      ansible.builtin.dnf:
+        update_cache: true
+      when: ansible_facts.pkg_mgr in ['dnf', 'dnf5']
+
+    - name: "VALKEY | Refresh Zypper package metadata"
+      become: true
+      become_user: root
+      community.general.zypper_repository:
+        repo: '*'
+        runrefresh: true
+      when: ansible_facts.pkg_mgr == 'zypper'
+
+    - name: VALKEY | Create a local socket test user
+      become: true
+      become_user: root
+      ansible.builtin.user:
+        name: valkey-client
+        create_home: false
+
+    - name: VALKEY | Create the Debian container service override directory
+      become: true
+      become_user: root
+      ansible.builtin.file:
+        path: /etc/systemd/system/valkey-server.service.d
+        state: directory
+        mode: '0755'
+      when: ansible_facts.os_family == 'Debian'
+
+    # Rootless Podman cannot combine ProtectProc with nested user namespaces.
+    # https://github.com/systemd/systemd/issues/29656
+    - name: VALKEY | Adapt proc visibility only inside Debian test containers
+      become: true
+      become_user: root
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/valkey-server.service.d/molecule.conf
+        content: "[Service]\nProtectProc=default\n"
+        mode: '0644'
+      when: ansible_facts.os_family == 'Debian'
+
+    - name: VALKEY | Install TLS test tooling
+      become: true
+      become_user: root
+      ansible.builtin.package:
+        name: openssl
+        state: present
+
+    - name: VALKEY | Generate an isolated TLS fixture
+      become: true
+      become_user: root
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - req
+          - -x509
+          - -nodes
+          - -newkey
+          - rsa:2048
+          - -subj
+          - /CN=localhost
+          - -days
+          - '2'
+          - -keyout
+          - /etc/valkey-molecule.key
+          - -out
+          - /etc/valkey-molecule.crt
+        creates: /etc/valkey-molecule.key
+      no_log: true

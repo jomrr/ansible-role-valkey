@@ -1,0 +1,66 @@
+---
+# role: valkey
+# file: tasks/selinux.yml
+
+- name: VALKEY | Install SELinux management dependencies
+  become: true
+  become_user: root
+  ansible.builtin.package:
+    name: [policycoreutils, policycoreutils-python-utils]
+    state: present
+
+- name: VALKEY | Label the TCP listener
+  become: true
+  become_user: root
+  community.general.seport:
+    ports: "{{ valkey_tcp_port }}"
+    proto: tcp
+    setype: redis_port_t
+    state: present
+  when: valkey_tcp_enabled
+
+- name: VALKEY | Label the socket directory persistently
+  become: true
+  become_user: root
+  community.general.sefcontext:
+    target: "{{ valkey_socket_path | dirname | regex_escape }}(/.*)?"
+    setype: redis_var_run_t
+    state: present
+  when: valkey_socket_enabled
+
+- name: VALKEY | Restore service file contexts
+  become: true
+  become_user: root
+  ansible.builtin.command:
+    argv: [restorecon, -Rv, /etc/valkey, /var/lib/valkey, "{{ valkey_socket_path | dirname }}"]
+  register: __valkey_contexts
+  changed_when: __valkey_contexts.stdout | length > 0
+  when: valkey_socket_enabled
+
+- name: VALKEY | Read installed SELinux modules
+  become: true
+  become_user: root
+  ansible.builtin.command:
+    argv: [semodule, -l]
+  register: __valkey_selinux_modules
+  changed_when: false
+  check_mode: false
+
+- name: VALKEY | Define confined socket clients
+  become: true
+  become_user: root
+  ansible.builtin.template:
+    src: socket-clients.cil.j2
+    dest: /etc/selinux/valkey_socket_clients.cil
+    owner: root
+    group: root
+    mode: '0644'
+  register: __valkey_socket_policy
+
+- name: VALKEY | Install the confined socket client policy
+  become: true
+  become_user: root
+  ansible.builtin.command:
+    argv: [semodule, -i, /etc/selinux/valkey_socket_clients.cil]
+  changed_when: true
+  when: __valkey_socket_policy is changed or 'valkey_socket_clients' not in __valkey_selinux_modules.stdout

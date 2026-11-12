@@ -1,0 +1,208 @@
+---
+# role: valkey
+# file: meta/argument_specs.yml
+
+argument_specs:
+  main:
+    short_description: Configure Valkey listeners, authentication, cache persistence and
+      SELinux socket access.
+    options:
+      valkey_tcp_enabled:
+        type: bool
+        default: true
+        description: Enable TCP independently of the Unix socket.
+      valkey_bind_addresses:
+        type: list
+        default:
+          - 127.0.0.1
+          - -::1
+        description: Numeric TCP listen addresses, optionally prefixed with minus; non-loopback
+          listeners require authentication.
+        elements: str
+      valkey_tcp_port:
+        type: int
+        default: 6379
+        description: TCP port from 1 to 65535; TLS replaces plaintext on this port when
+          enabled.
+      valkey_socket_enabled:
+        type: bool
+        default: false
+        description: Enable the Unix socket independently of TCP.
+      valkey_socket_path:
+        type: str
+        default: /run/valkey/valkey.sock
+        description: Absolute socket path in a dedicated directory; the role owns its parent
+          and grants traversal to valkey-clients.
+      valkey_socket_mode:
+        type: str
+        default: '0770'
+        description: Quoted octal socket permissions with owner access and no permissions
+          for other users.
+      valkey_socket_users:
+        type: list
+        default: []
+        description: Local service users added to valkey-clients; restart their services
+          to activate supplementary group changes.
+        elements: str
+      valkey_tls_enabled:
+        type: bool
+        default: false
+        description: Enable TLS on the TCP listener, disabling plaintext TCP.
+      valkey_tls_cert_file:
+        type: str
+        default: ''
+        description: Absolute path to the PEM server certificate, readable by the valkey
+          service user.
+      valkey_tls_key_file:
+        type: str
+        default: ''
+        description: Absolute path to the PEM private key, readable by the valkey service
+          user.
+      valkey_tls_ca_file:
+        type: str
+        default: ''
+        description: Absolute path to the PEM CA bundle used for TLS peer verification.
+      valkey_tls_auth_clients:
+        type: bool
+        default: true
+        description: Require a trusted client certificate in addition to password or ACL
+          authentication.
+      valkey_password:
+        type: str
+        default: ''
+        description: Password for the default user; stored as a SHA-256 ACL hash. Empty
+          disables the default user when named ACL users exist.
+        no_log: true
+      valkey_acl_users:
+        type: list
+        default: []
+        description:
+          - Each named user requires name and a nonempty password; the name default is reserved.
+          - Optional commands, key_patterns and channels override valkey_acl_commands, valkey_acl_key_patterns
+            and valkey_acl_channels.
+          - Command permissions start with plus or minus, key patterns with a tilde and
+            Pub/Sub channel patterns with an ampersand.
+        elements: dict
+        options:
+          name:
+            type: str
+            required: true
+            description: Unique user name containing letters, digits, dots, underscores
+              or hyphens; default is reserved.
+          password:
+            type: str
+            required: true
+            no_log: true
+            description: Nonempty password stored as a SHA-256 ACL hash.
+          commands:
+            type: list
+            elements: str
+            description: Command and category permissions, each starting with plus or minus.
+              Defaults to valkey_acl_commands.
+          key_patterns:
+            type: list
+            elements: str
+            description: Key patterns, each starting with a tilde. Defaults to valkey_acl_key_patterns.
+          channels:
+            type: list
+            elements: str
+            description: Pub/Sub channel patterns, each starting with an ampersand. Defaults
+              to valkey_acl_channels.
+      valkey_maxmemory:
+        type: str
+        default: 256mb
+        description: Memory limit in bytes or with k, kb, m, mb, g or gb suffix; zero removes
+          the limit.
+      valkey_maxmemory_policy:
+        type: str
+        default: allkeys-lru
+        description: Eviction policy applied when the memory limit is reached.
+        choices:
+          - noeviction
+          - allkeys-lru
+          - volatile-lru
+          - allkeys-lfu
+          - volatile-lfu
+          - allkeys-random
+          - volatile-random
+          - volatile-ttl
+      valkey_rdb_enabled:
+        type: bool
+        default: false
+        description: Enable scheduled RDB snapshots; disabled by default.
+      valkey_rdb_save:
+        type: list
+        default:
+          - seconds: 900
+            changes: 1
+          - seconds: 300
+            changes: 10
+          - seconds: 60
+            changes: 10000
+        description: Snapshot intervals used when RDB is enabled; each entry requires positive
+          seconds and changed-key count.
+        elements: dict
+        options:
+          seconds:
+            type: int
+            required: true
+            description: Positive snapshot interval in seconds.
+          changes:
+            type: int
+            required: true
+            description: Positive minimum number of changed keys.
+      valkey_aof_enabled:
+        type: bool
+        default: false
+        description: Enable append-only persistence; disabled by default.
+      valkey_aof_fsync:
+        type: str
+        default: everysec
+        description: Append-only file synchronization policy.
+        choices:
+          - always
+          - everysec
+          - 'no'
+      valkey_extra_directives:
+        type: list
+        default: []
+        description: Additional native directives with individually quoted arguments; managed
+          directives, includes and modules are forbidden.
+        elements: dict
+        options:
+          name:
+            type: str
+            required: true
+            description: Native directive name in lowercase.
+          arguments:
+            type: list
+            elements: str
+            required: true
+            no_log: true
+            description: Nonempty list of argument strings; values may contain secrets and
+              are never logged.
+      valkey_selinux_socket_clients:
+        type: list
+        default: []
+        description: SELinux domains permitted to connect to the socket, such as httpd_t;
+          requires the platform redis SELinux policy.
+        elements: str
+      valkey_acl_commands:
+        type: list
+        elements: str
+        default:
+          - +@read
+          - +@write
+          - +ping
+        description: Default commands permissions for ACL users without an item override.
+      valkey_acl_key_patterns:
+        type: list
+        elements: str
+        default:
+          - ~*
+        description: Default keys permissions for ACL users without an item override.
+      valkey_acl_channels:
+        type: list
+        elements: str
+        default: []
+        description: Default channels permissions for ACL users without an item override.

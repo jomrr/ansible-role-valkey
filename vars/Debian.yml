@@ -1,0 +1,6 @@
+---
+# role: valkey
+# file: vars/Debian.yml
+
+__valkey_packages: [valkey-server, valkey-tools]
+__valkey_service: valkey-server.service
